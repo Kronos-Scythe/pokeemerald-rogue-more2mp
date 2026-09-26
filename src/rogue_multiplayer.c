@@ -126,7 +126,16 @@ u8 RogueMP_GetLastConnectError()
     return gRogueLocalMP.recentConnectError;
 }
 
-ROGUE_STATIC_ASSERT(NET_PLAYER_CAPACITY == 2, PlayerIdAssume2Players);
+// Each player owns 2 object event ids (body and follow mon)
+ROGUE_STATIC_ASSERT(OBJ_EVENT_ID_MULTIPLAYER_COUNT == NET_PLAYER_CAPACITY * 2, MultiplayerObjectIdCount);
+// Only 3 remote players have graphics/palettes reserved (see sNetPlayerPaletteSlots)
+ROGUE_STATIC_ASSERT(NET_PLAYER_CAPACITY <= 4, MultiplayerRemoteGfxCount);
+
+// Palette slots used for other players' bodies, by remote slot
+// 8  : shared with follow mon slot 2 (disabled whilst MP is active)
+// 11 : reserved object palette which is otherwise unused (reflections share the main palette)
+// 7  : shared with follow mon slot 1 (disabled whilst the 3rd remote player is connected)
+static const u8 sNetPlayerPaletteSlots[NET_PLAYER_REMOTE_CAPACITY] = { 8, 11, 7 };
 
 u8 RogueMP_GetLocalPlayerId()
 {
@@ -136,12 +145,94 @@ u8 RogueMP_GetLocalPlayerId()
         return 0;
 }
 
+bool8 RogueMP_IsPlayerActive(u8 playerId)
+{
+    if(gRogueMultiplayer != NULL && playerId < NET_PLAYER_CAPACITY)
+        return gRogueMultiplayer->playerProfiles[playerId].isActive;
+    else
+        return FALSE;
+}
+
+u8 RogueMP_GetActivePlayerCount()
+{
+    u8 i;
+    u8 count = 0;
+
+    for(i = 0; i < NET_PLAYER_CAPACITY; ++i)
+    {
+        if(RogueMP_IsPlayerActive(i))
+            ++count;
+    }
+
+    return count;
+}
+
+static bool8 IsValidInteractionTarget(u8 playerId)
+{
+    return playerId < NET_PLAYER_CAPACITY && playerId != RogueMP_GetLocalPlayerId() && RogueMP_IsPlayerActive(playerId);
+}
+
+// The "remote player" is whoever we're currently interacting with (talking/trading)
+// If we haven't picked anyone, fallback to the first other player who is connected
 u8 RogueMP_GetRemotePlayerId()
 {
     if(gRogueMultiplayer != NULL)
-        return gRogueMultiplayer->localPlayerId ^ 1;
+    {
+        u8 i;
+        u8 localPlayerId = gRogueMultiplayer->localPlayerId;
+        u8 targetId = gRogueMultiplayer->playerState[localPlayerId].interactionTargetId;
+
+        if(IsValidInteractionTarget(targetId))
+            return targetId;
+
+        for(i = 0; i < NET_PLAYER_CAPACITY; ++i)
+        {
+            if(IsValidInteractionTarget(i))
+                return i;
+        }
+
+        return localPlayerId == 0 ? 1 : 0;
+    }
     else
         return 0;
+}
+
+// Remote slots are the other players ordered by player id, excluding the local player
+// e.g. local player 1 sees players 0, 2, 3 as remote slots 0, 1, 2
+u8 RogueMP_GetRemoteSlotForPlayer(u8 playerId)
+{
+    u8 localPlayerId = RogueMP_GetLocalPlayerId();
+    AGB_ASSERT(playerId != localPlayerId);
+    return playerId < localPlayerId ? playerId : playerId - 1;
+}
+
+u8 RogueMP_GetPlayerForRemoteSlot(u8 remoteSlot)
+{
+    u8 localPlayerId = RogueMP_GetLocalPlayerId();
+    return remoteSlot < localPlayerId ? remoteSlot : remoteSlot + 1;
+}
+
+bool8 RogueMP_IsRemoteSlotActive(u8 remoteSlot)
+{
+    return RogueMP_IsActive() && RogueMP_IsPlayerActive(RogueMP_GetPlayerForRemoteSlot(remoteSlot));
+}
+
+bool8 RogueMP_IsNetPlayerGfx(u16 gfxId)
+{
+    return (gfxId >= OBJ_EVENT_GFX_NET_PLAYER_FIRST && gfxId <= OBJ_EVENT_GFX_NET_PLAYER_LAST) || (gfxId >= OBJ_EVENT_GFX_NET_PLAYER_EXTRA_FIRST && gfxId <= OBJ_EVENT_GFX_NET_PLAYER_EXTRA_LAST);
+}
+
+u8 RogueMP_GetNetPlayerGfxRemoteSlot(u16 gfxId)
+{
+    if(gfxId >= OBJ_EVENT_GFX_NET_PLAYER_EXTRA_FIRST && gfxId <= OBJ_EVENT_GFX_NET_PLAYER_EXTRA_LAST)
+        return 1 + (gfxId - OBJ_EVENT_GFX_NET_PLAYER_EXTRA_FIRST);
+
+    return 0;
+}
+
+u8 RogueMP_GetNetPlayerPaletteSlot(u8 remoteSlot)
+{
+    return sNetPlayerPaletteSlots[min(remoteSlot, NET_PLAYER_REMOTE_CAPACITY - 1)];
 }
 
 static struct RogueNetPlayer* GetLocalPlayer()
@@ -157,9 +248,24 @@ static struct RogueNetPlayer* GetRemotePlayer()
 bool8 RogueMP_IsRemotePlayerActive()
 { 
     if(gRogueMultiplayer != NULL)
-        return gRogueMultiplayer->playerProfiles[RogueMP_GetRemotePlayerId()].isActive;
+        return IsValidInteractionTarget(RogueMP_GetRemotePlayerId());
     else
         return FALSE;
+}
+
+// Is this remote player trying to interact with us (rather than someone else)?
+static bool8 IsRemoteTargetingLocal(struct RogueNetPlayer* remotePlayer)
+{
+    return remotePlayer->interactionTargetId == RogueMP_GetLocalPlayerId();
+}
+
+static void SetInteractionTarget(u8 playerId)
+{
+    if(IsValidInteractionTarget(playerId) && GetLocalPlayer()->interactionTargetId != playerId)
+    {
+        MpLogf("Interaction target:%d", playerId);
+        GetLocalPlayer()->interactionTargetId = playerId;
+    }
 }
 
 static void CreatePlayerProfile(struct RogueNetPlayerProfile* profile)
@@ -497,10 +603,32 @@ static bool32 CanAcceptRemoteInteraction(struct RogueNetPlayer* localPlayer, str
 static void UpdateLocalPlayerStatus()
 {
     struct RogueNetPlayer* localPlayer = GetLocalPlayer();
-    struct RogueNetPlayer* remotePlayer = GetRemotePlayer();
+    struct RogueNetPlayer* remotePlayer;
+
+    if(localPlayer->desiredStatus == MP_PLAYER_STATUS_NONE && localPlayer->activeStatus == MP_PLAYER_STATUS_NONE)
+    {
+        // Whilst we're idle, look for another player who wants to talk to us
+        u8 i;
+
+        for(i = 0; i < NET_PLAYER_CAPACITY; ++i)
+        {
+            if(IsValidInteractionTarget(i))
+            {
+                struct RogueNetPlayer* otherPlayer = &gRogueMultiplayer->playerState[i];
+
+                if(otherPlayer->isInteractionOwner && otherPlayer->desiredStatus != MP_PLAYER_STATUS_NONE && IsRemoteTargetingLocal(otherPlayer))
+                {
+                    SetInteractionTarget(i);
+                    break;
+                }
+            }
+        }
+    }
 
     if(!RogueMP_IsRemotePlayerActive())
         return;
+
+    remotePlayer = GetRemotePlayer();
 
     if(localPlayer->desiredStatus == MP_PLAYER_STATUS_NONE && localPlayer->activeStatus != MP_PLAYER_STATUS_NONE)
     {
@@ -526,7 +654,7 @@ static void UpdateLocalPlayerStatus()
         }
     }
     // If positive, the remote is ahead of us, so we locally need to sync up
-    else if(remotePlayer->desiredStatus != MP_PLAYER_STATUS_NONE && remotePlayer->isInteractionOwner)
+    else if(remotePlayer->desiredStatus != MP_PLAYER_STATUS_NONE && remotePlayer->isInteractionOwner && IsRemoteTargetingLocal(remotePlayer))
     {
         if(localPlayer->activeStatus != remotePlayer->desiredStatus && CanAcceptRemoteInteraction(localPlayer, remotePlayer))
         {
@@ -573,7 +701,16 @@ void RogueMP_PushLocalPlayerStatus(u8 status)
     if(RogueMP_IsActive())
     {
         struct RogueNetPlayer* localPlayer = GetLocalPlayer();
-        struct RogueNetPlayer* remotePlayer = GetRemotePlayer();
+        struct RogueNetPlayer* remotePlayer;
+
+        // Starting a new interaction by talking to another player's object, so target them
+        if(status != MP_PLAYER_STATUS_NONE && localPlayer->desiredStatus == MP_PLAYER_STATUS_NONE && localPlayer->activeStatus == MP_PLAYER_STATUS_NONE)
+        {
+            if(gSpecialVar_LastTalked >= OBJ_EVENT_ID_MULTIPLAYER_FIRST && gSpecialVar_LastTalked <= OBJ_EVENT_ID_MULTIPLAYER_LAST)
+                SetInteractionTarget((gSpecialVar_LastTalked - OBJ_EVENT_ID_MULTIPLAYER_FIRST) / 2);
+        }
+
+        remotePlayer = GetRemotePlayer();
 
         // Init any params
         if(localPlayer->desiredStatus != status)
@@ -594,7 +731,7 @@ void RogueMP_PushLocalPlayerStatus(u8 status)
         {
             localPlayer->desiredStatus = MP_PLAYER_STATUS_NONE;
         }
-        else if(remotePlayer->desiredStatus == status && remotePlayer->isInteractionOwner)
+        else if(remotePlayer->desiredStatus == status && remotePlayer->isInteractionOwner && IsRemoteTargetingLocal(remotePlayer))
         {
             localPlayer->desiredStatus = status;
             localPlayer->activeStatus = status;
@@ -634,8 +771,23 @@ static bool8 IsPermaRevisedActive()
     return FALSE;
 }
 
+static u8 FindFreePlayerId()
+{
+    u8 i;
+
+    // Slot 0 is always the host
+    for(i = NET_PLAYER_ID_HOST + 1; i < NET_PLAYER_CAPACITY; ++i)
+    {
+        if(!gRogueMultiplayer->playerProfiles[i].isActive)
+            return i;
+    }
+
+    return NET_PLAYER_CAPACITY;
+}
+
 static void Host_HandleHandshakeRequest()
 {
+    u8 playerId;
     AGB_ASSERT(gRogueMultiplayer != NULL);
 
     if(gRogueMultiplayer->pendingHandshake.isVersionEx != IsExVersion())
@@ -668,11 +820,35 @@ static void Host_HandleHandshakeRequest()
         return;
     }
 
+    gRogueMultiplayer->pendingHandshake.hostSupportsMultiPlayer = TRUE;
+
+    if(!gRogueMultiplayer->pendingHandshake.clientSupportsMultiPlayer)
+    {
+        // Client is on an older build which only understands 2 players (net structs have a different layout)
+        gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_SAVE_VERSION;
+        gRogueMultiplayer->pendingHandshake.accepted = FALSE;
+        gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_CLIENT;
+        return;
+    }
+
+    playerId = FindFreePlayerId();
+
+    if(playerId == NET_PLAYER_CAPACITY)
+    {
+        // No free slots
+        gRogueLocalMP.recentConnectError = CONN_ERR_SESSION_FULL;
+        gRogueMultiplayer->pendingHandshake.accepted = FALSE;
+        gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_CLIENT;
+        return;
+    }
+
     // Is valid so accept
+    MpLogf("Accepting player into slot:%d", playerId);
     gRogueLocalMP.recentConnectError = CONN_ERR_NONE;
     gRogueMultiplayer->pendingHandshake.accepted = TRUE;
-    gRogueMultiplayer->pendingHandshake.playerId = 1; // TODO - Assign to free slot
+    gRogueMultiplayer->pendingHandshake.playerId = playerId;
     gRogueMultiplayer->pendingHandshake.profile.isActive = TRUE;
+    memset(&gRogueMultiplayer->playerState[playerId], 0, sizeof(gRogueMultiplayer->playerState[playerId]));
     memcpy(&gRogueMultiplayer->playerProfiles[gRogueMultiplayer->pendingHandshake.playerId], &gRogueMultiplayer->pendingHandshake.profile, sizeof(gRogueMultiplayer->pendingHandshake.profile));
 
     gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_CLIENT;
@@ -687,6 +863,8 @@ static void Client_SetupHandshakeRequest()
     gRogueMultiplayer->pendingHandshake.saveVersionId = RogueSave_GetVersionId();
     gRogueMultiplayer->pendingHandshake.isVersionEx = IsExVersion();
     gRogueMultiplayer->pendingHandshake.isPermaRevisedActive = IsPermaRevisedActive();
+    gRogueMultiplayer->pendingHandshake.clientSupportsMultiPlayer = TRUE;
+    gRogueMultiplayer->pendingHandshake.hostSupportsMultiPlayer = FALSE; // host will set this if it understands us
 
     gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_HOST;
 }
@@ -711,7 +889,25 @@ static void Client_HandleHandshakeResponse()
         {
             gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_REVISED_MODE;
         }
+        else if(!gRogueMultiplayer->pendingHandshake.hostSupportsMultiPlayer)
+        {
+            gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_SAVE_VERSION;
+        }
+        else
+        {
+            // Everything matched, so the host must have run out of player slots
+            gRogueLocalMP.recentConnectError = CONN_ERR_SESSION_FULL;
+        }
 
+        RogueMP_Close();
+        return;
+    }
+
+    if(!gRogueMultiplayer->pendingHandshake.hostSupportsMultiPlayer)
+    {
+        // Host is on an older build which only understands 2 players (net structs have a different layout)
+        DebugPrint("Host doesn't support this multiplayer version.");
+        gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_SAVE_VERSION;
         RogueMP_Close();
         return;
     }
@@ -875,18 +1071,53 @@ static void EnsureObjectIsRemoved(u8 localObjectId)
     ProcessSyncedObjectEvent(&syncInfo);
 }
 
+// Only removes dynamically spawned wild mons (placed map objects are left alone)
+static void RemoveSpawnedFollowMonsWithGfx(u16 gfxId)
+{
+    u8 i;
+
+    for(i = 0; i < OBJECT_EVENTS_COUNT; ++i)
+    {
+        if(
+            gObjectEvents[i].active && gObjectEvents[i].graphicsId == gfxId &&
+            gObjectEvents[i].localId >= OBJ_EVENT_ID_FOLLOW_MON_FIRST && gObjectEvents[i].localId <= OBJ_EVENT_ID_FOLLOW_MON_LAST
+        )
+            RemoveObjectEvent(&gObjectEvents[i]);
+    }
+}
+
+static u16 GetNetPlayerGfx(u8 remoteSlot, bool8 isRiding)
+{
+    switch (remoteSlot)
+    {
+    case 0:
+        return isRiding ? OBJ_EVENT_GFX_NET_PLAYER_RIDING : OBJ_EVENT_GFX_NET_PLAYER_NORMAL;
+
+    case 1:
+        return OBJ_EVENT_GFX_NET_PLAYER_REMOTE_1_NORMAL;
+
+    default:
+        return OBJ_EVENT_GFX_NET_PLAYER_REMOTE_2_NORMAL;
+    }
+}
+
 static void ObservePlayerState(u8 playerId, struct RogueNetPlayer* player)
 {
     bool8 isPlayerActive = FALSE;
     bool8 isFollowerActive = FALSE;
     u8 playerObjectId = OBJ_EVENT_ID_MULTIPLAYER_FIRST + playerId * 2 + 0;
     u8 followerObjectId = OBJ_EVENT_ID_MULTIPLAYER_FIRST + playerId * 2 + 1;
+    u8 remoteSlot = RogueMP_GetRemoteSlotForPlayer(playerId);
+
+    // There are only enough palettes/gfx for the first remote player's follow/ride mon
+    // other players are displayed on foot and without a follower
+    bool8 canDisplayMon = (remoteSlot == 0);
 
     if(gRogueMultiplayer->playerProfiles[playerId].isActive)
     {
         isPlayerActive = TRUE;
 
-        if(player->partnerMon != SPECIES_NONE && !(player->playerFlags & NET_PLAYER_STATE_FLAG_RIDING) && ArePlayerFollowMonsAllowed())
+        if(canDisplayMon && player->partnerMon != SPECIES_NONE && !(player->playerFlags & NET_PLAYER_STATE_FLAG_RIDING) && ArePlayerFollowMonsAllowed())
         {
             // Only display follower if not sat on top of it
             isFollowerActive = !(player->playerPos.x == player->partnerPos.x && player->playerPos.y == player->partnerPos.y);
@@ -920,15 +1151,17 @@ static void ObservePlayerState(u8 playerId, struct RogueNetPlayer* player)
         syncInfo.movementBuffer = player->movementBuffer;
         syncInfo.movementBufferHead = player->movementBufferHead;
         syncInfo.movementBufferReadOffset = 0;
+        syncInfo.gfxId = GetNetPlayerGfx(remoteSlot, canDisplayMon && (player->playerFlags & NET_PLAYER_STATE_FLAG_RIDING));
 
-        if(player->playerFlags & NET_PLAYER_STATE_FLAG_RIDING)
-            syncInfo.gfxId = OBJ_EVENT_GFX_NET_PLAYER_RIDING;
-        else
-            syncInfo.gfxId = OBJ_EVENT_GFX_NET_PLAYER_NORMAL;
+        if(remoteSlot == 2)
+        {
+            // This player borrows follow mon slot 1's palette, so clear out any mon still using it
+            RemoveSpawnedFollowMonsWithGfx(OBJ_EVENT_GFX_FOLLOW_MON_1);
+        }
 
         objectEventId = ProcessSyncedObjectEvent(&syncInfo);
 
-        if(objectEventId != OBJECT_EVENTS_COUNT && (player->playerFlags & NET_PLAYER_STATE_FLAG_RIDING))
+        if(objectEventId != OBJECT_EVENTS_COUNT && canDisplayMon && (player->playerFlags & NET_PLAYER_STATE_FLAG_RIDING))
         {
             Rogue_SetupRideObject(1 + playerId, objectEventId, player->partnerMon, (player->playerFlags & NET_PLAYER_STATE_FLAG_FLYING) != 0);
         }
@@ -1247,9 +1480,9 @@ static void ClearSendCmd(u8 result)
 
 static void ProcessPlayerCommands()
 {
-    // Setup to assume 2 players
+    // Commands are exchanged with whoever we're currently interacting with
     struct RogueNetPlayer* localPlayer = GetLocalPlayer();
-    struct RogueNetPlayer* remotePlayer = GetRemotePlayer();
+    struct RogueNetPlayer* remotePlayer;
     AGB_ASSERT(gRogueMultiplayer != NULL);
 
     // Can't do anything if the other player isn't active
@@ -1257,9 +1490,12 @@ static void ProcessPlayerCommands()
     if(!RogueMP_IsRemotePlayerActive())
         return;
 
+    // Note: this may change who the remote player is
     UpdateLocalPlayerStatus();
+    remotePlayer = GetRemotePlayer();
 
-    // Process incoming request
+    // Process incoming request (only if it's aimed at us)
+    if(IsRemoteTargetingLocal(remotePlayer))
     {
         REMOTE_SEND_ARGS();
 
@@ -1332,7 +1568,7 @@ static void Task_WaitForSendFinish(u8 taskId)
         if(gTasks[taskId].isIncoming)
         {
             REMOTE_SEND_ARGS();
-            if(remoteCmdArgs->cmdId != MP_CMD_NONE)
+            if(remoteCmdArgs->cmdId != MP_CMD_NONE && IsRemoteTargetingLocal(GetRemotePlayer()))
             {
                 gSpecialVar_Result = TRUE;
                 ScriptContext_Enable();
@@ -1539,7 +1775,7 @@ bool8 RogueMP_HasTalkRequestPending()
     {
         LOCAL_RESP_ARGS();
         REMOTE_SEND_ARGS();
-        return remoteCmdArgs->cmdId == MP_CMD_REQUEST_TALK_TO_PLAYER && localCmdArgs->cmdId != MP_CMD_REQUEST_TALK_TO_PLAYER;
+        return remoteCmdArgs->cmdId == MP_CMD_REQUEST_TALK_TO_PLAYER && localCmdArgs->cmdId != MP_CMD_REQUEST_TALK_TO_PLAYER && IsRemoteTargetingLocal(GetRemotePlayer());
     }
 
     return FALSE;

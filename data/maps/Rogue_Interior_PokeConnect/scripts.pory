@@ -118,6 +118,9 @@ script Rogue_Interior_PokeConnect_TalkMultiplayer
                 case 3: // CONN_ERR_WRONG_REVISED_MODE
                     msgbox(format("I'm sorry.\nI can't connect you to that Player as you both have incompatible settings for Revision Mode in the Config Lab."))
 
+                case 4: // CONN_ERR_SESSION_FULL
+                    msgbox(format("I'm sorry.\nI can't connect you to that Player as their group is already full."))
+
                 default: // CONN_ERR_NONE
                     msgbox(format("If you change your mind, please feel free to speak with me again."))
 
