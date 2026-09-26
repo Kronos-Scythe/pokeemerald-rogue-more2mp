@@ -1401,12 +1401,12 @@ static const struct PlayerOutfit* GetCurrentOutfit()
     return &sPlayerOutfits[min(RoguePlayer_GetOutfitId(), PLAYER_OUTFIT_COUNT - 1)];
 }
 
-static const struct PlayerOutfit* GetNetCurrentOutfit()
+static const struct PlayerOutfit* GetNetCurrentOutfit(u8 playerId)
 {
     if(RogueMP_IsActive())
     {
         // TODO - Should probably have a missing no outfit?
-        return &sPlayerOutfits[min(RogueMP_GetPlayerOutfitId(RogueMP_GetRemotePlayerId()), PLAYER_OUTFIT_COUNT - 1)];
+        return &sPlayerOutfits[min(RogueMP_GetPlayerOutfitId(playerId), PLAYER_OUTFIT_COUNT - 1)];
     }
     else
     {
@@ -1707,14 +1707,14 @@ static void GrabLocalPlayerColours(u16* buffer)
         buffer[i] = RoguePlayer_GetOutfitStyle(i);
 }
 
-static void GrabRemotePlayerColours(u16* buffer)
+static void GrabRemotePlayerColours(u8 playerId, u16* buffer)
 {
     u8 i;
 
     for(i = 0; i < PLAYER_OUTFIT_STYLE_COUNT; ++i)
     {
         if(RogueMP_IsActive())
-            buffer[i] = RogueMP_GetPlayerOutfitStyle(RogueMP_GetRemotePlayerId(), i);
+            buffer[i] = RogueMP_GetPlayerOutfitStyle(playerId, i);
         else
             buffer[i] = 0;
     }
@@ -1749,9 +1749,9 @@ const struct ObjectEventGraphicsInfo* RoguePlayer_GetObjectEventGraphicsInfo(u8 
     return GetCurrentOutfit()->objectEventGfx[state];
 }
 
-const struct ObjectEventGraphicsInfo* RogueNetPlayer_GetObjectEventGraphicsInfo(u8 state)
+const struct ObjectEventGraphicsInfo* RogueNetPlayer_GetObjectEventGraphicsInfo(u8 playerId, u8 state)
 {
-    return GetNetCurrentOutfit()->objectEventGfx[state];
+    return GetNetCurrentOutfit(playerId)->objectEventGfx[state];
 }
 
 const u16* RoguePlayer_GetOverworldPalette()
@@ -1763,11 +1763,11 @@ const u16* RoguePlayer_GetOverworldPalette()
     return ModifyOutfitPalette(outfit, outfit->objectEventBasePal, outfit->objectEventLayerPal, layerColours);
 }
 
-const u16* RogueNetPlayer_GetOverworldPalette()
+const u16* RogueNetPlayer_GetOverworldPalette(u8 playerId)
 {
-    const struct PlayerOutfit* outfit = GetNetCurrentOutfit();
+    const struct PlayerOutfit* outfit = GetNetCurrentOutfit(playerId);
     u16 layerColours[PLAYER_OUTFIT_STYLE_COUNT];
-    GrabRemotePlayerColours(layerColours);
+    GrabRemotePlayerColours(playerId, layerColours);
 
     return ModifyOutfitPalette(outfit, outfit->objectEventBasePal, outfit->objectEventLayerPal, layerColours);
 }

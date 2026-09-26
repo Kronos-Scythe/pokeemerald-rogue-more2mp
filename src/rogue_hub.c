@@ -724,7 +724,7 @@ u8 const* RogueHub_GetHubName()
 {
     if(RogueMP_IsActive() && !RogueMP_IsHost())
     {
-        return RogueMP_GetPlayerHubName(RogueMP_GetRemotePlayerId());
+        return RogueMP_GetPlayerHubName(NET_PLAYER_ID_HOST);
     }
 
     return gSaveBlock2Ptr->pokemonHubName;
@@ -734,7 +734,7 @@ u8 RogueHub_GetHubVariantNumber()
 {
     if(RogueMP_IsActive() && !RogueMP_IsHost())
     {
-        return RogueMP_GetPlayerTrainerId(RogueMP_GetRemotePlayerId())[0];
+        return RogueMP_GetPlayerTrainerId(NET_PLAYER_ID_HOST)[0];
     }
 
     return gSaveBlock2Ptr->playerTrainerId[0];

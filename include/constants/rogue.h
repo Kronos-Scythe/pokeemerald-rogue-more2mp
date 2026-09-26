@@ -687,7 +687,9 @@
 
 // Rogue Assistant
 //
-#define NET_PLAYER_CAPACITY 2   // host and connecting player (2 palettes reserved for each player: main body and follow/ride mon)
+#define NET_PLAYER_CAPACITY 4   // host + up to 3 connecting players
+#define NET_PLAYER_REMOTE_CAPACITY              (NET_PLAYER_CAPACITY - 1) // other players drawn locally
+#define NET_PLAYER_ID_HOST                      0
 #define NET_PLAYER_MOVEMENT_BUFFER_SIZE         8
 
 #define NET_HANDSHAKE_STATE_NONE                0

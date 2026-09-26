@@ -1463,7 +1463,7 @@ const void* Rogue_ModifyPaletteLoad(const void* input)
 
     if(input == &gObjectEventPal_NetPlayerPlaceholder[0])
     {
-        return RogueNetPlayer_GetOverworldPalette();
+        return RogueNetPlayer_GetOverworldPalette(RogueMP_GetPlayerForRemoteSlot(0));
     }
 
     //if(input == &gObjectEventPal_FollowMon0[0])
@@ -1486,10 +1486,14 @@ const void* Rogue_ModifyPaletteLoad(const void* input)
 
 bool8 Rogue_ModifyObjectPaletteSlot(u16 graphicsId, u8* palSlot)
 {
-    if(graphicsId >= OBJ_EVENT_GFX_NET_PLAYER_FIRST && graphicsId <= OBJ_EVENT_GFX_NET_PLAYER_LAST)
+    if(RogueMP_IsNetPlayerGfx(graphicsId))
     {
-        *palSlot = 8;
-        PatchObjectPalette(0x119C, *palSlot); // OBJ_EVENT_PAL_TAG_NET_PLAYER - todo should def pull this out correctly
+        // Each other player has their own palette slot, coloured by their outfit
+        u8 remoteSlot = RogueMP_GetNetPlayerGfxRemoteSlot(graphicsId);
+
+        *palSlot = RogueMP_GetNetPlayerPaletteSlot(remoteSlot);
+        LoadPalette(RogueNetPlayer_GetOverworldPalette(RogueMP_GetPlayerForRemoteSlot(remoteSlot)), OBJ_PLTT_ID(*palSlot), PLTT_SIZE_4BPP);
+        Rogue_ModifyOverworldPalette(OBJ_PLTT_ID(*palSlot), PLTT_SIZE_4BPP);
         return TRUE;
     }
 

@@ -797,10 +797,10 @@ static bool8 IsSpawnSlotValid(u16 slot)
             return TRUE;
     }
 
-    // 1 : normal pal index 2
+    // 1 : normal pal index 2 (Shared for the 3rd remote multiplayer player palette)
     if(slot == 1)
     {
-        return TRUE;
+        return !RogueMP_IsRemoteSlotActive(2);
     }
     
     // 2 : normal pal index 3 (Shared for the multiplayer player palette)

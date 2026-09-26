@@ -40,6 +40,7 @@
 #include "rogue_adventurepaths.h"
 #include "rogue_controller.h"
 #include "rogue_followmon.h"
+#include "rogue_multiplayer.h"
 #include "rogue_player_customisation.h"
 #include "rogue_ridemon.h"
 #include "rogue_trainers.h"
@@ -2572,15 +2573,19 @@ const struct ObjectEventGraphicsInfo *GetObjectEventGraphicsInfo(u16 graphicsId)
     }
 
     // Handle net player avatar
-    else if (graphicsId >= OBJ_EVENT_GFX_NET_PLAYER_FIRST && graphicsId <= OBJ_EVENT_GFX_NET_PLAYER_LAST)
+    else if (RogueMP_IsNetPlayerGfx(graphicsId))
     {
+        u8 playerId = RogueMP_GetPlayerForRemoteSlot(RogueMP_GetNetPlayerGfxRemoteSlot(graphicsId));
+
         switch(graphicsId)
         {
             case OBJ_EVENT_GFX_NET_PLAYER_NORMAL:
-                return RogueNetPlayer_GetObjectEventGraphicsInfo(PLAYER_AVATAR_STATE_NORMAL);
+            case OBJ_EVENT_GFX_NET_PLAYER_REMOTE_1_NORMAL:
+            case OBJ_EVENT_GFX_NET_PLAYER_REMOTE_2_NORMAL:
+                return RogueNetPlayer_GetObjectEventGraphicsInfo(playerId, PLAYER_AVATAR_STATE_NORMAL);
 
             case OBJ_EVENT_GFX_NET_PLAYER_RIDING:
-                return RogueNetPlayer_GetObjectEventGraphicsInfo(PLAYER_AVATAR_STATE_RIDE_GRABBING);
+                return RogueNetPlayer_GetObjectEventGraphicsInfo(playerId, PLAYER_AVATAR_STATE_RIDE_GRABBING);
 
             default:
                 graphicsId = OBJ_EVENT_GFX_NINJA_BOY;
