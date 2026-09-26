@@ -15,6 +15,7 @@ enum
     CONN_ERR_WRONG_GAME_FLAVOUR,
     CONN_ERR_WRONG_SAVE_VERSION,
     CONN_ERR_WRONG_REVISED_MODE,
+    CONN_ERR_SESSION_FULL,
 };
 
 extern EWRAM_DATA struct RogueNetMultiplayer* gRogueMultiplayer;
@@ -30,6 +31,16 @@ u8 RogueMP_GetLastConnectError();
 u8 RogueMP_GetLocalPlayerId();
 u8 RogueMP_GetRemotePlayerId();
 bool8 RogueMP_IsRemotePlayerActive();
+bool8 RogueMP_IsPlayerActive(u8 playerId);
+u8 RogueMP_GetActivePlayerCount();
+
+u8 RogueMP_GetRemoteSlotForPlayer(u8 playerId);
+u8 RogueMP_GetPlayerForRemoteSlot(u8 remoteSlot);
+bool8 RogueMP_IsRemoteSlotActive(u8 remoteSlot);
+
+bool8 RogueMP_IsNetPlayerGfx(u16 gfxId);
+u8 RogueMP_GetNetPlayerGfxRemoteSlot(u16 gfxId);
+u8 RogueMP_GetNetPlayerPaletteSlot(u8 remoteSlot);
 
 u8 RogueMP_GetPlayerOutfitId(u8 playerId);
 u16 RogueMP_GetPlayerOutfitStyle(u8 playerId, u8 outfitStyle);

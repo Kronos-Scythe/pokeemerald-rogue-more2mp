@@ -534,6 +534,7 @@ struct RogueNetPlayer
     u8 facingDirection : 4;
     u8 partnerFacingDirection : 4;
     u8 isInteractionOwner : 1;
+    u8 interactionTargetId; // which player this player is talking/trading with
 };
 
 struct RogueNetHandshake
@@ -545,6 +546,8 @@ struct RogueNetHandshake
     u8 accepted : 1;
     u8 isVersionEx : 1;
     u8 isPermaRevisedActive : 1;
+    u8 clientSupportsMultiPlayer : 1; // set by client; hosts without it reject the client
+    u8 hostSupportsMultiPlayer : 1; // set by host; clients without it reject the host
 };
 
 struct RogueNetMultiplayer

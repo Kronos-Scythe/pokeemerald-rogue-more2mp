@@ -684,7 +684,9 @@ static void UpdateRideMonSprites(u8 rideObjectId, struct RideObjectEvent* rideOb
             }
             else
             {
-                u16 gfxId = rideObjectId - 1;
+                // Only the first remote player can be seen riding, so share their follow mon gfx
+                // (the follow mon is hidden whilst riding, and follow mon slot 3 is reserved whilst MP is active)
+                u16 gfxId = OBJ_EVENT_GFX_MP_FOLLOW_MON - OBJ_EVENT_GFX_FOLLOW_MON_0;
                 u16 species = rideObject->state.monGfx;
                 bool8 isShiny = FALSE;
 
