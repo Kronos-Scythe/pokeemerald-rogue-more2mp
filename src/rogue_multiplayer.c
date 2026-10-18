@@ -24,6 +24,9 @@
 #include "pokemon.h"
 #include "script_pokemon_util.h"
 #include "battle_setup.h"
+#include "field_screen_effect.h"
+#include "item.h"
+#include "overworld.h"
 #include "rogue_player_customisation.h"
 #include "rogue_ridemon.h"
 #include "rogue_save.h"
@@ -100,10 +103,11 @@ void RogueMP_Init()
 }
 
 #ifdef ROGUE_MP_TEST
-// Written by the test harness: 1 = host, 2 = join, 3 = close, 4 = give mon (species in gRogueMPTestArg),
-// 5 = copy party species to gRogueMPTestOut, 6 = start a wild battle (species in gRogueMPTestArg)
+// Written by the test harness: 1 = host, 2 = join, 3 = close, 4 = give mon (species = arg0),
+// 5 = copy party species to gRogueMPTestOut, 6 = start a wild battle (species = arg0),
+// 7 = warp (group, num, x, y = arg0..3), 8 = give item (item, count = arg0, arg1)
 EWRAM_DATA volatile u8 gRogueMPTestCommand = 0;
-EWRAM_DATA volatile u16 gRogueMPTestArg = 0;
+EWRAM_DATA volatile u16 gRogueMPTestArg[4] = {0};
 EWRAM_DATA volatile u16 gRogueMPTestOut[PARTY_SIZE] = {0};
 
 void RogueMP_TestHook(void)
@@ -126,7 +130,7 @@ void RogueMP_TestHook(void)
             RogueMP_Close();
         break;
     case 4:
-        ScriptGiveMon(gRogueMPTestArg, 10, ITEM_NONE, 0, 0, 0);
+        ScriptGiveMon(gRogueMPTestArg[0], 10, ITEM_NONE, 0, 0, 0);
         break;
     case 5:
         {
@@ -137,8 +141,15 @@ void RogueMP_TestHook(void)
         break;
     case 6:
         // Wild battle against species in gRogueMPTestArg
-        CreateScriptedWildMon(gRogueMPTestArg, 5, ITEM_NONE, FALSE);
+        CreateScriptedWildMon(gRogueMPTestArg[0], 5, ITEM_NONE, FALSE);
         BattleSetup_StartScriptedWildBattle();
+        break;
+    case 7:
+        SetWarpDestination(gRogueMPTestArg[0], gRogueMPTestArg[1], WARP_ID_NONE, gRogueMPTestArg[2], gRogueMPTestArg[3]);
+        DoWarp();
+        break;
+    case 8:
+        AddBagItem(gRogueMPTestArg[0], gRogueMPTestArg[1]);
         break;
     }
 }
