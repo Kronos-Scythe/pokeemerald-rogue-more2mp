@@ -1,7 +1,8 @@
-# Emerald Rogue – 4-player multiplayer fork
+# Emerald Rogue – link cable co-op fork
 
-Fork of [Pokabbie/pokeemerald-rogue](https://github.com/Pokabbie/pokeemerald-rogue) (v2.2.1) that raises
-multiplayer (via Rogue Assistant) from 2 to 4 players.
+Fork of [Pokabbie/pokeemerald-rogue](https://github.com/Pokabbie/pokeemerald-rogue) (v2.2.1 EX) where
+multiplayer runs over the **link cable** (RetroArch netplay, like Pokémon Quetzal) instead of the
+Rogue Assistant app. 2 players: a host and a partner.
 
 - **Only work in the fork** (`Kronos-Scythe/pokeemerald-rogue-more2mp`). Never push to or open PRs against
   `Pokabbie/pokeemerald-rogue`. GitHub's "Compare & pull request" button defaults to upstream – change the
@@ -11,10 +12,10 @@ multiplayer (via Rogue Assistant) from 2 to 4 players.
 
 ## Branches
 
-| Branch | Based on | Flavour |
+| Branch | Based on | What |
 |---|---|---|
-| `claude/emerald-rogue-player-limit-ex` | upstream `expansion` (2.2.1) | **EX – use this one** |
-| `claude/emerald-rogue-player-limit-pnbwv9` | upstream `vanilla` (2.2.1) | Vanilla |
+| `claude/emerald-rogue-player-limit-ex` | upstream `expansion` (2.2.1) | **EX, link cable co-op – use this one** |
+| `claude/emerald-rogue-player-limit-pnbwv9` | upstream `vanilla` (2.2.1) | Vanilla, old 4-player Rogue Assistant experiment |
 
 Upstream branches: `expansion` = EX, `vanilla` = Vanilla. On the EX branch the Makefile defaults to
 `EXPANSION := 1`.
@@ -33,8 +34,12 @@ make tools
 make RELEASE=1 -j4       # RELEASE=1 matches the official ROM; plain `make` is a debug build
 ```
 
-Output: `pokeemerald.gba` (32 MB). This branch was verified to build with exactly these commands on Ubuntu
+Output: `pokeemerald.gba` (32 MB). Verified to build with exactly these commands on Ubuntu
 (arm-none-eabi-gcc 13.2, no agbcc).
+
+Iteration tip: once a ROM exists, every `make` re-runs the QueryBaker data bake (~20 min, single
+threaded). It only bakes species/encounter data, so when you haven't touched that data you can skip it
+with `GITHUB_REPOSITORY_OWNER=local make RELEASE=1 -j16` (the Makefile skips local-only tools on CI).
 
 ### Problems already hit and their fixes
 
@@ -46,9 +51,8 @@ Output: `pokeemerald.gba` (32 MB). This branch was verified to build with exactl
 - **`fatal: detected dubious ownership`**: `git config --global --add safe.directory /mnt/g/github/pokeemerald-rogue-more2mp`.
 - **Checkout blocked by "local changes" to `.pory`/`.vcxproj`/`.cs` files**: line-ending noise from cloning
   with Windows git. `git stash`, then checkout.
-- **`generated/quest_consts.h: No such file` in `make tools`**: happens on the Vanilla branch (its
-  `make tools` builds QueryBaker before generated headers exist). Re-run `make tools`. The EX branch builds
-  QueryBaker during the main `make` instead.
+- **`generated/quest_consts.h: No such file` in `make tools`**: happens on the Vanilla branch. Re-run
+  `make tools`. The EX branch builds QueryBaker during the main `make` instead.
 - **`No rule to make target 'src/string.h'`**: fixed on the EX branch (`#include <string.h>`); otherwise
   install agbcc into the repo per INSTALL.md.
 - **`make: command not found`**: the apt install step was skipped.
@@ -57,38 +61,80 @@ Output: `pokeemerald.gba` (32 MB). This branch was verified to build with exactl
   `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc`.
 - **QueryBaker "Baking Local Data..."** can print nothing for 20+ minutes. That's normal.
 - The WSL user is `root` (`getpwuid(1000) failed` on start). Builds fine as root.
+- Some `.pory` files use CRLF line endings (e.g. `data/scripts/Rogue/Rogue_Multiplayer.pory`); keep them
+  CRLF when editing (Python text mode silently converts them).
+
+## Playing co-op (RetroArch)
+
+1. Both players: RetroArch 1.17+ with the **gpSP** core (Online Updater → Core Downloader →
+   "Nintendo - Game Boy Advance (gpSP)"; update it, the Pokémon link mode is recent).
+2. Both load the **same** ROM build (identical patch). Different builds refuse to connect.
+3. Quick Menu → Core Options → **Link Cable Connectivity: "Link Cable - Pokemon Gen3 mode"**
+   ("Automatic" also picks it for large Pokémon ROM hacks).
+4. One player hosts netplay (Netplay → Host), the other connects. The netplay host does not have to be the
+   in-game host.
+5. In game, both go to the PokeConnect building and talk to the Multiplayer receptionist: one picks
+   **Host Group**, the other **Join Group**.
+
+Errors shown by the receptionist: different game version/patch, EX vs Vanilla, revision mode mismatch,
+both picked the same option, partner on a different Adventure, lost connection to host.
 
 ## Sharing the ROM
 
 Don't distribute the `.gba`. Make a patch with RomPatcher.js (https://www.marcrobledo.com/RomPatcher.js/):
 "Create patch" with a clean Emerald ROM as original and the built `pokeemerald.gba` as modified (UPS/BPS).
-Friends apply it to their own clean Emerald ROM. Everyone in a group needs the same new ROM plus Rogue
-Assistant; the handshake refuses old/new and EX/Vanilla mixes.
+Friends apply it to their own clean Emerald ROM.
 
-## What the 4-player change does
+## How the link co-op works
 
-Most of it is in `src/rogue_multiplayer.c`.
+`src/rogue_multiplayer_link.c` (transport) + `src/rogue_multiplayer.c` (game logic, unchanged mostly).
 
-1. **Limit and joining**: `NET_PLAYER_CAPACITY` 2 → 4 (`include/constants/rogue.h`). Host is always slot 0;
-   joiners get the first free slot (`FindFreePlayerId`). Full group → `CONN_ERR_SESSION_FULL`, with a
-   message in `data/maps/Rogue_Interior_PokeConnect/scripts.pory`.
-2. **Old/new ROM protection**: `RogueNetHandshake` gained `clientSupportsMultiPlayer` and
-   `hostSupportsMultiPlayer` bits. Mismatches report `CONN_ERR_WRONG_SAVE_VERSION`. Save format is unchanged.
-3. **Characters**: `OBJ_EVENT_ID_MULTIPLAYER` 241–244 → 241–248 (2 per player: body + follow mon). Other
-   players map to "remote slots" 0–2 (`RogueMP_GetRemoteSlotForPlayer`). New gfx ids
-   `OBJ_EVENT_GFX_NET_PLAYER_REMOTE_1/2_NORMAL` are appended after the follow-mon gfx, so no existing id moved.
-4. **Palettes** (`sNetPlayerPaletteSlots`): remote slot 0 → pal 8 (as before), slot 1 → pal 11 (reserved,
-   unused), slot 2 → pal 7 (disables wild follow-mon slot 1 while connected; spawned wild mons using it are
-   removed). Maps that place FOLLOW_MON_1/2 objects (Day Care, Ride Training, Safari tutorial, Intro, final
-   boss) can show colour clashes.
-5. **Follow/ride mons**: only remote slot 0 shows one. The remote ride mon uses the MP follow-mon gfx slot
-   (`src/rogue_ridemon.c`) instead of borrowing a wild slot.
-6. **Targeted interactions**: `RogueNetPlayer.interactionTargetId`. Set from `gSpecialVar_LastTalked` when
-   talking to a player object, or adopted while idle when another player targets you. Status sync and cmd
-   buffers only respond to requests aimed at the local player. `RogueMP_GetRemotePlayerId()` returns the
-   current target, or the first other active player. Hub name/variant always come from the host
-   (`NET_PLAYER_ID_HOST`).
+- Uses the vanilla Emerald cable layer (`src/link.c`) in multiplayer mode. `OpenLink()` then our own
+  `gLinkCallback` (so the vanilla player exchange never runs and `gReceivedRemoteLinkPlayers` stays 0),
+  link error screens suppressed. One 8-halfword command per frame per player. Message ids
+  `0x3A00 | type` (unused by vanilla `LINKCMD_*`), word 1 = sequence number | arg, 12 bytes payload.
+- gpSP "Pokemon Gen3 mode": the netplay host is the link master; only non-zero commands are sent,
+  reliably and in order; a peer is dropped after 240 silent frames; a client can only (re)join while the
+  master is in handshake, so on loss both sides close and reopen the link.
+- HELLO/WELCOME handshake: protocol version, build fingerprint (struct sizes + save version + version
+  string), EX flag, save version, revision mode, host/join role, per-attempt nonce.
+- Replicated regions: each side's `RogueNetPlayerProfile` and `RogueNetPlayer`, plus the host's
+  `RogueNetGameState` (hub map, difficulty, time, adventure seed). Changes go as 10 byte CHUNKs then a
+  COMMIT with a hash; the receiver stages chunks and applies only when the hash matches. Sequence gaps,
+  hash mismatches and idle DIGEST mismatches request a full resend (RESYNC). Stats live at the start of
+  `gRogueMPLink` (fixed offsets, read by the test harness).
+- Lost partner (4 s silence or link error) → popup, partner hidden, link reopened after 1 s; partner rejoins
+  the same session automatically. A client mid-adventure may only rejoin a host on the same adventure
+  (seed check). Client gives up after 2 minutes; host keeps waiting.
+- Remote players: remote slot 0 uses the existing net player gfx/palette 8 and follow/ride mon. (Remote
+  slots 1–2 from the old 4-player work remain in code but are unused with 2 players.)
+- Talking to the other player targets them (`interactionTargetId`); trading requires both to have a
+  tradeable Pokémon.
 
-Not play-tested yet. Still to try: 3–4 players in hub and routes, trades between different pairs,
-leave/rejoin, loading an existing EX 2.2.1 save. Not checked: how Rogue Assistant handles several joins
-and marks leavers inactive.
+## Testing without RetroArch
+
+`tools/netplay_harness/` is a Python libretro frontend that runs two gpSP instances in one process and
+relays their netpackets (latency, packet drops, disconnects configurable).
+
+```bash
+git clone https://github.com/libretro/gpsp && make -C gpsp platform=unix   # gpsp_libretro.so
+# build a test ROM: uncomment #define ROGUE_MP_TEST in include/config/mp_test.h (never commit it enabled)
+python3 tools/netplay_harness/mp_test.py --core gpsp_libretro.so --rom pokeemerald.gba --map pokeemerald.map --out out --latency 4
+python3 tools/netplay_harness/mp_interact.py ... --trade      # walk up to the other player and trade
+python3 tools/netplay_harness/mp_interact.py ... --battle     # wild battle while connected
+python3 tools/netplay_harness/mp_npc.py ...                   # real PokeConnect receptionist flow
+python3 tools/netplay_harness/berry_test.py ... --state out/overworld.state --berry 531   # berry planting
+```
+
+The first run plays the new-game intro and saves `out/overworld.state` (savestates are per ROM build;
+use `--reboot` after rebuilding). `mp_test.py` checks connect, byte-identical mirrors on both games,
+movement, dropped packets, disconnect + auto reconnect, client reset + rejoin, 2x speed mismatch, saving
+while connected. All pass at 1, 4 and 15 frames latency.
+
+## Other fixes on the EX branch
+
+- Berry planting: ported upstream 5ccb74cf (v2.2.1a). 2.2.1 stopped the player interacting with invisible
+  object events, and empty soil is an invisible berry tree object. Verified in the harness (no prompt
+  without the fix, "Want to plant a Berry?" with it).
+- Pokéblock blending (Market) starts and runs; not verified to completion in the harness (the blender
+  minigame needs timed presses).
