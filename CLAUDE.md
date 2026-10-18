@@ -136,5 +136,6 @@ while connected. All pass at 1, 4 and 15 frames latency.
 - Berry planting: ported upstream 5ccb74cf (v2.2.1a). 2.2.1 stopped the player interacting with invisible
   object events, and empty soil is an invisible berry tree object. Verified in the harness (no prompt
   without the fix, "Want to plant a Berry?" with it).
-- Pokéblock blending (Market) starts and runs; not verified to completion in the harness (the blender
-  minigame needs timed presses).
+- Pokéblock blending (Market novice blender) verified end to end in the harness: 20 Oran Berries →
+  "4 HP Pokéblocks were made!" (`berry_test.py --blend`). Scattering Pokéblocks on routes / at the Honey
+  Tree needs an active adventure and hasn't been exercised by the harness.

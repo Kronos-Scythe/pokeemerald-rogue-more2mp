@@ -22,6 +22,7 @@ def main():
     ap.add_argument("--out", default="berry_test_out")
     ap.add_argument("--berry", type=int, required=True, help="item id of ITEM_ORAN_BERRY")
     ap.add_argument("--blend", action="store_true", help="test Pokeblock blending instead of planting")
+    ap.add_argument("--blend-seconds", type=int, default=200, help="how long to let the blender run")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -53,11 +54,11 @@ def main():
         step(180)
         press("UP", 20)
         k = 0
-        for b in ["A", "A", "A", "A", "A", "A", "A", "A"]:
+        for b in ["A", "A", "A", "A", "A", "A", "A", "A", "A"]:
             press(b, 50)
             c.screenshot(os.path.join(args.out, f"b{k:02d}.png"))
             k += 1
-        for i in range(12):         # the blender minigame (the NPC partner drives it)
+        for i in range(args.blend_seconds // 16):  # the blender minigame (the NPC partner drives it)
             step(1000)
             c.screenshot(os.path.join(args.out, f"b{k:02d}.png"))
             k += 1
