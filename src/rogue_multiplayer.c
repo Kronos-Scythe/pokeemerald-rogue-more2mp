@@ -18,6 +18,8 @@
 #include "rogue_debug.h"
 #include "rogue_followmon.h"
 #include "rogue_multiplayer.h"
+#include "rogue_multiplayer_link.h"
+#include "config/mp_test.h"
 #include "rogue_player_customisation.h"
 #include "rogue_ridemon.h"
 #include "rogue_save.h"
@@ -73,9 +75,6 @@ EWRAM_DATA struct RogueLocalMP gRogueLocalMP = {0};
 EWRAM_DATA struct RogueNetMultiplayer* gRogueMultiplayer = NULL;
 EWRAM_DATA struct RogueNetMultiplayer gTEMPNetMultiplayer; // temporary memory holder which should be swaped out for dynamic alloc really
 
-static void Host_HandleHandshakeRequest();
-static void Client_SetupHandshakeRequest();
-static void Client_HandleHandshakeResponse();
 static void Host_UpdateGameState();
 static void Client_UpdateGameState();
 static void UpdateLocalPlayerState(u8 playerId);
@@ -96,6 +95,33 @@ void RogueMP_Init()
     gRogueMultiplayer = NULL;
 }
 
+#ifdef ROGUE_MP_TEST
+// Written by the test harness: 1 = host, 2 = join, 3 = close
+EWRAM_DATA volatile u8 gRogueMPTestCommand = 0;
+
+void RogueMP_TestHook(void)
+{
+    u8 cmd = gRogueMPTestCommand;
+    gRogueMPTestCommand = 0;
+
+    switch(cmd)
+    {
+    case 1:
+        if(gRogueMultiplayer == NULL)
+            RogueMP_OpenHost();
+        break;
+    case 2:
+        if(gRogueMultiplayer == NULL)
+            RogueMP_OpenClient();
+        break;
+    case 3:
+        if(gRogueMultiplayer != NULL)
+            RogueMP_Close();
+        break;
+    }
+}
+#endif
+
 bool8 RogueMP_IsActive()
 {
     return gRogueMultiplayer != NULL && (gRogueMultiplayer->netCurrentState & NET_STATE_ACTIVE) != 0;
@@ -108,7 +134,8 @@ bool8 RogueMP_IsActiveOrConnecting()
 
 bool8 RogueMP_IsConnecting()
 {
-    return gRogueMultiplayer != NULL && !RogueMP_IsHost() && gRogueMultiplayer->localPlayerId == 0;
+    // Client that hasn't finished joining yet
+    return gRogueMultiplayer != NULL && (gRogueMultiplayer->netCurrentState & NET_STATE_ACTIVE) == 0;
 }
 
 bool8 RogueMP_IsHost()
@@ -127,7 +154,7 @@ u8 RogueMP_GetLastConnectError()
 }
 
 // Each player owns 2 object event ids (body and follow mon)
-ROGUE_STATIC_ASSERT(OBJ_EVENT_ID_MULTIPLAYER_COUNT == NET_PLAYER_CAPACITY * 2, MultiplayerObjectIdCount);
+ROGUE_STATIC_ASSERT(OBJ_EVENT_ID_MULTIPLAYER_COUNT >= NET_PLAYER_CAPACITY * 2, MultiplayerObjectIdCount);
 // Only 3 remote players have graphics/palettes reserved (see sNetPlayerPaletteSlots)
 ROGUE_STATIC_ASSERT(NET_PLAYER_CAPACITY <= 4, MultiplayerRemoteGfxCount);
 
@@ -135,7 +162,8 @@ ROGUE_STATIC_ASSERT(NET_PLAYER_CAPACITY <= 4, MultiplayerRemoteGfxCount);
 // 8  : shared with follow mon slot 2 (disabled whilst MP is active)
 // 11 : reserved object palette which is otherwise unused (reflections share the main palette)
 // 7  : shared with follow mon slot 1 (disabled whilst the 3rd remote player is connected)
-static const u8 sNetPlayerPaletteSlots[NET_PLAYER_REMOTE_CAPACITY] = { 8, 11, 7 };
+static const u8 sNetPlayerPaletteSlots[] = { 8, 11, 7 };
+ROGUE_STATIC_ASSERT(ARRAY_COUNT(sNetPlayerPaletteSlots) >= NET_PLAYER_REMOTE_CAPACITY, MultiplayerPaletteSlotCount);
 
 u8 RogueMP_GetLocalPlayerId()
 {
@@ -298,6 +326,10 @@ void RogueMP_OpenHost()
 
     gRogueMultiplayer->netRequestState = NET_STATE_ACTIVE | NET_STATE_HOST;
 
+    // Hosting starts straight away, the partner can join (and rejoin) at any point
+    gRogueMultiplayer->netCurrentState = gRogueMultiplayer->netRequestState;
+    RogueMPLink_Start(TRUE);
+
     FlagSet(FLAG_ROGUE_MULTIPLAYER_IS_HOST);
 }
 
@@ -310,8 +342,12 @@ void RogueMP_OpenClient()
 
     gRogueMultiplayer = &gTEMPNetMultiplayer;
 
-    Client_SetupHandshakeRequest();
+    // Player id is confirmed by the host when joining
+    gRogueMultiplayer->localPlayerId = 1;
+    CreatePlayerProfile(&gRogueMultiplayer->playerProfiles[gRogueMultiplayer->localPlayerId]);
+
     gRogueMultiplayer->netRequestState = NET_STATE_ACTIVE;
+    RogueMPLink_Start(FALSE);
 
     FlagSet(FLAG_ROGUE_MULTIPLAYER_IS_CLIENT);
 }
@@ -319,6 +355,7 @@ void RogueMP_OpenClient()
 void RogueMP_Close()
 {
     AGB_ASSERT(gRogueMultiplayer != NULL);
+    RogueMPLink_Stop();
     RogueMP_RemoveObjectEvents();
     gRogueMultiplayer = NULL;
 
@@ -361,35 +398,32 @@ void RogueMP_MainCB()
     // Bump counter each frame so we can divide up MP ops
     ++gRogueMultiplayer->localCounter;
 
+    RogueMPLink_Update();
+
+    if(RogueMPLink_GetFailReason() != CONN_ERR_NONE)
+    {
+        u8 reason = RogueMPLink_GetFailReason();
+        RogueMPLink_ClearFailReason();
+
+        if(!RogueMP_IsHost())
+        {
+            // Couldn't join (or rejoin) the host, so leave multiplayer
+            gRogueLocalMP.recentConnectError = reason;
+            RogueMP_Close();
+            return;
+        }
+    }
+
+    if(RogueMP_IsConnecting() && RogueMPLink_IsPartnerConnected())
+    {
+        // Fully synced with the host
+        gRogueMultiplayer->netCurrentState = gRogueMultiplayer->netRequestState;
+    }
+
     if(RogueMP_IsHost())
-    {
-        if(gRogueMultiplayer->pendingHandshake.state == NET_HANDSHAKE_STATE_SEND_TO_HOST)
-        {
-            // Incoming new connection request
-            DebugPrint("Incoming client request...");
-            Host_HandleHandshakeRequest();
-        }
-        else
-        {
-            Host_UpdateGameState();
-        }
-    }
-    else
-    {
-        if(RogueMP_IsConnecting())
-        {
-            if(gRogueMultiplayer->pendingHandshake.state == NET_HANDSHAKE_STATE_SEND_TO_CLIENT)
-            {
-                // Incoming response from host
-                DebugPrint("Incoming handshake response...");
-                Client_HandleHandshakeResponse();
-            }
-        }
-        else
-        {
-            Client_UpdateGameState();
-        }
-    }
+        Host_UpdateGameState();
+    else if(RogueMP_IsActive())
+        Client_UpdateGameState();
 
     if(RogueMP_IsActive())
     {
@@ -749,171 +783,6 @@ void RogueMP_PushLocalPlayerStatus(u8 status)
 
         MpLogf("Local status:%d owner:%d seed:%d", localPlayer->desiredStatus, localPlayer->isInteractionOwner, localPlayer->statusSeed);
     }
-}
-
-static bool8 IsExVersion()
-{
-#ifdef ROGUE_EXPANSION
-    return TRUE;
-#else
-    return FALSE;
-#endif
-}
-
-static bool8 IsPermaRevisedActive()
-{
-#ifdef ROGUE_FEATURE_REVISED_MODE
-    if(Rogue_GetConfigRange(CONFIG_RANGE_REVISION_MODE) == REVISION_MODE_ALWAYS_ON)
-    {
-        return TRUE;
-    }
-#endif
-    return FALSE;
-}
-
-static u8 FindFreePlayerId()
-{
-    u8 i;
-
-    // Slot 0 is always the host
-    for(i = NET_PLAYER_ID_HOST + 1; i < NET_PLAYER_CAPACITY; ++i)
-    {
-        if(!gRogueMultiplayer->playerProfiles[i].isActive)
-            return i;
-    }
-
-    return NET_PLAYER_CAPACITY;
-}
-
-static void Host_HandleHandshakeRequest()
-{
-    u8 playerId;
-    AGB_ASSERT(gRogueMultiplayer != NULL);
-
-    if(gRogueMultiplayer->pendingHandshake.isVersionEx != IsExVersion())
-    {
-        // Flavour doesn't match
-        gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_GAME_FLAVOUR;
-        gRogueMultiplayer->pendingHandshake.isVersionEx = IsExVersion();
-        gRogueMultiplayer->pendingHandshake.accepted = FALSE;
-        gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_CLIENT;
-        return;
-    }
-
-    if(gRogueMultiplayer->pendingHandshake.saveVersionId != RogueSave_GetVersionId())
-    {
-        // Save version doesn't match
-        gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_SAVE_VERSION;
-        gRogueMultiplayer->pendingHandshake.saveVersionId = RogueSave_GetVersionId();
-        gRogueMultiplayer->pendingHandshake.accepted = FALSE;
-        gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_CLIENT;
-        return;
-    }
-
-    if(gRogueMultiplayer->pendingHandshake.isPermaRevisedActive != IsPermaRevisedActive())
-    {
-        // Revision doesn't match
-        gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_REVISED_MODE;
-        gRogueMultiplayer->pendingHandshake.isPermaRevisedActive = IsPermaRevisedActive();
-        gRogueMultiplayer->pendingHandshake.accepted = FALSE;
-        gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_CLIENT;
-        return;
-    }
-
-    gRogueMultiplayer->pendingHandshake.hostSupportsMultiPlayer = TRUE;
-
-    if(!gRogueMultiplayer->pendingHandshake.clientSupportsMultiPlayer)
-    {
-        // Client is on an older build which only understands 2 players (net structs have a different layout)
-        gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_SAVE_VERSION;
-        gRogueMultiplayer->pendingHandshake.accepted = FALSE;
-        gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_CLIENT;
-        return;
-    }
-
-    playerId = FindFreePlayerId();
-
-    if(playerId == NET_PLAYER_CAPACITY)
-    {
-        // No free slots
-        gRogueLocalMP.recentConnectError = CONN_ERR_SESSION_FULL;
-        gRogueMultiplayer->pendingHandshake.accepted = FALSE;
-        gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_CLIENT;
-        return;
-    }
-
-    // Is valid so accept
-    MpLogf("Accepting player into slot:%d", playerId);
-    gRogueLocalMP.recentConnectError = CONN_ERR_NONE;
-    gRogueMultiplayer->pendingHandshake.accepted = TRUE;
-    gRogueMultiplayer->pendingHandshake.playerId = playerId;
-    gRogueMultiplayer->pendingHandshake.profile.isActive = TRUE;
-    memset(&gRogueMultiplayer->playerState[playerId], 0, sizeof(gRogueMultiplayer->playerState[playerId]));
-    memcpy(&gRogueMultiplayer->playerProfiles[gRogueMultiplayer->pendingHandshake.playerId], &gRogueMultiplayer->pendingHandshake.profile, sizeof(gRogueMultiplayer->pendingHandshake.profile));
-
-    gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_CLIENT;
-}
-
-static void Client_SetupHandshakeRequest()
-{
-    AGB_ASSERT(gRogueMultiplayer != NULL);
-    CreatePlayerProfile(&gRogueMultiplayer->pendingHandshake.profile);
-
-    // TODO - Setup versioning vars
-    gRogueMultiplayer->pendingHandshake.saveVersionId = RogueSave_GetVersionId();
-    gRogueMultiplayer->pendingHandshake.isVersionEx = IsExVersion();
-    gRogueMultiplayer->pendingHandshake.isPermaRevisedActive = IsPermaRevisedActive();
-    gRogueMultiplayer->pendingHandshake.clientSupportsMultiPlayer = TRUE;
-    gRogueMultiplayer->pendingHandshake.hostSupportsMultiPlayer = FALSE; // host will set this if it understands us
-
-    gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_SEND_TO_HOST;
-}
-
-static void Client_HandleHandshakeResponse()
-{
-    AGB_ASSERT(gRogueMultiplayer != NULL);
-
-    if(!gRogueMultiplayer->pendingHandshake.accepted)
-    {
-        DebugPrint("Handshake wasn't accepted.");
-
-        if(gRogueMultiplayer->pendingHandshake.isVersionEx != IsExVersion())
-        {
-            gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_GAME_FLAVOUR;
-        }
-        else if(gRogueMultiplayer->pendingHandshake.saveVersionId != RogueSave_GetVersionId())
-        {
-            gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_SAVE_VERSION;
-        }
-        else if(gRogueMultiplayer->pendingHandshake.isPermaRevisedActive != IsPermaRevisedActive())
-        {
-            gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_REVISED_MODE;
-        }
-        else if(!gRogueMultiplayer->pendingHandshake.hostSupportsMultiPlayer)
-        {
-            gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_SAVE_VERSION;
-        }
-        else
-        {
-            // Everything matched, so the host must have run out of player slots
-            gRogueLocalMP.recentConnectError = CONN_ERR_SESSION_FULL;
-        }
-
-        RogueMP_Close();
-        return;
-    }
-
-    if(!gRogueMultiplayer->pendingHandshake.hostSupportsMultiPlayer)
-    {
-        // Host is on an older build which only understands 2 players (net structs have a different layout)
-        DebugPrint("Host doesn't support this multiplayer version.");
-        gRogueLocalMP.recentConnectError = CONN_ERR_WRONG_SAVE_VERSION;
-        RogueMP_Close();
-        return;
-    }
-
-    gRogueMultiplayer->localPlayerId = gRogueMultiplayer->pendingHandshake.playerId;
-    gRogueMultiplayer->pendingHandshake.state = NET_HANDSHAKE_STATE_NONE;
 }
 
 static void Host_UpdateGameState()

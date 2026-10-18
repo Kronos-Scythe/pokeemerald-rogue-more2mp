@@ -687,7 +687,7 @@
 
 // Rogue Assistant
 //
-#define NET_PLAYER_CAPACITY 4   // host + up to 3 connecting players
+#define NET_PLAYER_CAPACITY 2   // host + 1 partner over the link cable
 #define NET_PLAYER_REMOTE_CAPACITY              (NET_PLAYER_CAPACITY - 1) // other players drawn locally
 #define NET_PLAYER_ID_HOST                      0
 #define NET_PLAYER_MOVEMENT_BUFFER_SIZE         8

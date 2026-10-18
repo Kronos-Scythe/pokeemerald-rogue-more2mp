@@ -48,14 +48,16 @@ script Rogue_Interior_PokeConnect_TalkMultiplayer
 
         msgbox(format("{COLOR RED}WARNING!\n{COLOR DARK_GRAY}This feature is still in Alpha.\pIt is still in active development, as a result, some features may not work correctly/be missing.\pPlease regularly save your game and make save backups, while using this feature."))
 
-        call(Rogue_Common_WaitForRogueAssistant)
+        msgbox(format("Multiplayer uses the Link Cable.\pBoth players must first be linked with RetroArch Netplay, using the gpSP core with Link Cable set to Pokémon Gen3 mode."))
+
+        setvar(VAR_RESULT, TRUE)
 
         if(var(VAR_RESULT) == TRUE)
         {
             call(Common_EventScript_SaveGame)
             if(var(VAR_RESULT) == YES)
             {
-                message(format("Please decide which of you will become the Group Host.\pThe other players must then choose Join Group."))
+                message(format("Please decide which of you will become the Group Host.\pThe other player must then choose Join Group."))
                 waitmessage
 
                 multichoice(16, 6, MULTI_LINK_HOST_JOIN, FALSE)
@@ -63,7 +65,7 @@ script Rogue_Interior_PokeConnect_TalkMultiplayer
                 switch(var(VAR_RESULT))
                 {
                     case 0: // Join
-                        message(format("Please setup in Rogue Assistant now\n… … B Button: Cancel"))
+                        message(format("Waiting for the Host…\n… … B Button: Cancel"))
                         waitmessage
 
                         special(Rogue_JoinMultiplayer)
@@ -75,7 +77,7 @@ script Rogue_Interior_PokeConnect_TalkMultiplayer
                         }
 
                     case 1: // Host
-                        message(format("Please setup in Rogue Assistant now\n… … B Button: Cancel"))
+                        message(format("Starting to Host…\n… … B Button: Cancel"))
                         waitmessage
 
                         special(Rogue_HostMultiplayer)
@@ -120,6 +122,18 @@ script Rogue_Interior_PokeConnect_TalkMultiplayer
 
                 case 4: // CONN_ERR_SESSION_FULL
                     msgbox(format("I'm sorry.\nI can't connect you to that Player as their group is already full."))
+
+                case 5: // CONN_ERR_WRONG_BUILD
+                    msgbox(format("I'm sorry.\nI can't connect you to that Player as you are not both playing the exact same game patch."))
+
+                case 6: // CONN_ERR_SAME_ROLE
+                    msgbox(format("I'm sorry.\nYou both chose the same option.\pOne of you must Host and the other must Join Group."))
+
+                case 7: // CONN_ERR_DIFFERENT_ADVENTURE
+                    msgbox(format("I'm sorry.\nI can't connect you to that Player as they are on a different Adventure."))
+
+                case 8: // CONN_ERR_LOST_HOST
+                    msgbox(format("I'm sorry.\nThe connection to the Host was lost."))
 
                 default: // CONN_ERR_NONE
                     msgbox(format("If you change your mind, please feel free to speak with me again."))
@@ -189,6 +203,6 @@ script Rogue_Interior_PokeConnect_Tutorial
     setvar(VAR_STOP_TUTORIAL, 1)
 
     lock
-    msgbox(format("This building grants access to external features such as Extended Storage and Multiplayer.\pCurrently, these features are only supported when playing using mGBA on Windows PC.\pIn order to make use of these features, you will need to download a helper program called Rogue Assistant and connect it to your emulator.\pDownloaded from:\n{COLOR BLUE}https://rogue.assist.pokabbie.com\p{COLOR RED}Never download from other links, otherwise you may open yourself up to installing viruses!"))
+    msgbox(format("This building grants access to external features such as Extended Storage and Multiplayer.\pMultiplayer works over the Link Cable. Link with a friend using RetroArch Netplay and the gpSP core, with Link Cable set to Pokémon Gen3 mode.\pExtended Storage is only supported when playing using mGBA on Windows PC.\pIt needs a helper program called Rogue Assistant connected to your emulator.\pDownloaded from:\n{COLOR BLUE}https://rogue.assist.pokabbie.com\p{COLOR RED}Never download from other links, otherwise you may open yourself up to installing viruses!"))
     release
 }

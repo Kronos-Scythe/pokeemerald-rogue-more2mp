@@ -356,6 +356,10 @@ static const u8 sText_Popup_UpgradeSlots[] = _("{COLOR LIGHT_BLUE}{SHADOW BLUE}+
 static const u8 sText_Popup_RogueAssistant[] = _("Rogue Assistant");
 static const u8 sText_Popup_Connected[] = _("{COLOR LIGHT_GREEN}{SHADOW GREEN}Connected!");
 static const u8 sText_Popup_Disconnected[] = _("{COLOR RED}{SHADOW LIGHT_RED}Disconnected.");
+static const u8 sText_Popup_Multiplayer[] = _("Multiplayer");
+static const u8 sText_Popup_PartnerJoined[] = _("{COLOR LIGHT_GREEN}{SHADOW GREEN}Partner joined!");
+static const u8 sText_Popup_PartnerRejoined[] = _("{COLOR LIGHT_GREEN}{SHADOW GREEN}Partner reconnected!");
+static const u8 sText_Popup_PartnerLost[] = _("{COLOR RED}{SHADOW LIGHT_RED}Lost partner, reconnecting…");
 
 static const u8 sText_Popup_OutfitUnlocked[] = _("{COLOR LIGHT_GREEN}{SHADOW GREEN}Outfit Unlocked!");
 static const u8 sText_Popup_ItsASecret[] = _("Shh… its a secret");
@@ -1996,6 +2000,32 @@ void Rogue_PushPopup_AssistantDisconnected()
 
     popup->titleText = sText_Popup_RogueAssistant;
     popup->subtitleText = sText_Popup_Disconnected;
+}
+
+static void PushMultiplayerPopup(const u8* subtitle)
+{
+    struct PopupRequest* popup = CreateNewPopup();
+
+    popup->templateId = POPUP_COMMON_CUSTOM_ICON_TEXT;
+    popup->iconId = POPUP_CUSTOM_ICON_POKEDEX;
+
+    popup->titleText = sText_Popup_Multiplayer;
+    popup->subtitleText = subtitle;
+}
+
+void Rogue_PushPopup_MultiplayerPartnerJoined()
+{
+    PushMultiplayerPopup(sText_Popup_PartnerJoined);
+}
+
+void Rogue_PushPopup_MultiplayerPartnerRejoined()
+{
+    PushMultiplayerPopup(sText_Popup_PartnerRejoined);
+}
+
+void Rogue_PushPopup_MultiplayerPartnerLost()
+{
+    PushMultiplayerPopup(sText_Popup_PartnerLost);
 }
 
 void Rogue_PushPopup_EasterEggOutfitUnlocked()

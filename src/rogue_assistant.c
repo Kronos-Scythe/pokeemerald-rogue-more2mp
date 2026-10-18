@@ -37,6 +37,7 @@
 #include "rogue_controller.h"
 #include "rogue_followmon.h"
 #include "rogue_multiplayer.h"
+#include "config/mp_test.h"
 #include "rogue_pokedex.h"
 #include "rogue_popup.h"
 #include "rogue_query.h"
@@ -225,9 +226,7 @@ static void OnAssistantDisconnect()
 {
     Rogue_PushPopup_AssistantDisconnected();
 
-    // Close multiplayer if active
-    if(RogueMP_IsActive())
-        RogueMP_Close();
+    // Multiplayer runs over the link cable now, so it doesn't depend on the assistant
 }
 
 void Rogue_AssistantMainCB()
@@ -251,6 +250,13 @@ void Rogue_AssistantMainCB()
         gRogueAssistantState.isAssistantConnected = TRUE;
         OnAssistantConnect();
     }
+
+#ifdef ROGUE_MP_TEST
+    {
+        extern void RogueMP_TestHook(void);
+        RogueMP_TestHook();
+    }
+#endif
 
     if(RogueMP_IsActiveOrConnecting())
         RogueMP_MainCB();

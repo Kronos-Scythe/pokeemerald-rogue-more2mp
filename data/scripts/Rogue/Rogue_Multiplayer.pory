@@ -180,11 +180,11 @@ script RogueMP_PerformReconnect
 
     if(var(VAR_RESULT) == YES)
     {
-        call(Rogue_Common_WaitForRogueAssistant)
+        setvar(VAR_RESULT, TRUE)
 
         while(var(VAR_RESULT) == TRUE)
         {
-            message(format("Please decide which of you will become the Group Host.\pThe other players must then choose Join Group."))
+            message(format("Please decide which of you will become the Group Host.\pThe other player must then choose Join Group."))
             waitmessage
 
             multichoice(16, 6, MULTI_LINK_HOST_JOIN, FALSE)
@@ -192,7 +192,7 @@ script RogueMP_PerformReconnect
             switch(var(VAR_RESULT))
             {
                 case 0: // Join
-                    message(format("Please setup in Rogue Assistant now\n… … B Button: Cancel"))
+                    message(format("Waiting for the Host…\n… … B Button: Cancel"))
                     waitmessage
 
                     special(Rogue_JoinMultiplayer)
@@ -204,7 +204,7 @@ script RogueMP_PerformReconnect
                     }
 
                 case 1: // Host
-                    message(format("Please setup in Rogue Assistant now\n… … B Button: Cancel"))
+                    message(format("Starting to Host…\n… … B Button: Cancel"))
                     waitmessage
 
                     special(Rogue_HostMultiplayer)

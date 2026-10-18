@@ -69,6 +69,9 @@ void Rogue_PushPopup_ToggleSpeedup(bool8 speedupEnabled);
 
 void Rogue_PushPopup_AssistantConnected();
 void Rogue_PushPopup_AssistantDisconnected();
+void Rogue_PushPopup_MultiplayerPartnerJoined();
+void Rogue_PushPopup_MultiplayerPartnerRejoined();
+void Rogue_PushPopup_MultiplayerPartnerLost();
 
 void Rogue_PushPopup_EasterEggOutfitUnlocked();
 
