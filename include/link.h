@@ -327,6 +327,7 @@ extern u16 gLinkTestBlockChecksums[MAX_LINK_PLAYERS];
 extern u8 gBlockRequestType;
 extern u8 gLastSendQueueCount;
 extern u8 gLastRecvQueueCount;
+extern u16 gLinkSlaveRealigns;
 extern u16 gLinkSavedIme;
 extern struct LinkPlayer gLocalLinkPlayer;
 

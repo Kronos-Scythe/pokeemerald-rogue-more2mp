@@ -105,7 +105,9 @@ void RogueMP_Init()
 #ifdef ROGUE_MP_TEST
 // Written by the test harness: 1 = host, 2 = join, 3 = close, 4 = give mon (species = arg0),
 // 5 = copy party species to gRogueMPTestOut, 6 = start a wild battle (species = arg0),
-// 7 = warp (group, num, x, y = arg0..3), 8 = give item (item, count = arg0, arg1)
+// 7 = warp (group, num, x, y = arg0..3), 8 = give item (item, count = arg0, arg1),
+// 9 = enter the first adventure room of type arg0, 10 = report var arg0 / run active / room type /
+// bag count of item arg1 / in the overworld in gRogueMPTestOut, 11 = run the script at address arg0 | arg1 << 16
 EWRAM_DATA volatile u8 gRogueMPTestCommand = 0;
 EWRAM_DATA volatile u16 gRogueMPTestArg[4] = {0};
 EWRAM_DATA volatile u16 gRogueMPTestOut[PARTY_SIZE] = {0};
@@ -150,6 +152,35 @@ void RogueMP_TestHook(void)
         break;
     case 8:
         AddBagItem(gRogueMPTestArg[0], gRogueMPTestArg[1]);
+        break;
+    case 9:
+        {
+            u8 i;
+            for(i = 0; i < gRogueAdvPath.roomCount; ++i)
+            {
+                if(gRogueAdvPath.rooms[i].roomType == gRogueMPTestArg[0])
+                {
+                    // Same as RogueAdv_WarpLastInteractedRoom
+                    gRogueRun.adventureRoomId = i;
+                    gRogueAdvPath.currentRoomType = gRogueAdvPath.rooms[i].roomType;
+                    memcpy(&gRogueAdvPath.currentRoomParams, &gRogueAdvPath.rooms[i].roomParams, sizeof(gRogueAdvPath.currentRoomParams));
+                    SetWarpDestination(MAP_GROUP(ROGUE_HUB_TRANSITION), MAP_NUM(ROGUE_HUB_TRANSITION), 0, -1, -1);
+                    DoWarp();
+                    ResetInitialPlayerAvatarState();
+                    break;
+                }
+            }
+        }
+        break;
+    case 10:
+        gRogueMPTestOut[0] = VarGet(gRogueMPTestArg[0]);
+        gRogueMPTestOut[1] = Rogue_IsRunActive();
+        gRogueMPTestOut[2] = gRogueAdvPath.currentRoomType;
+        gRogueMPTestOut[3] = CountTotalItemQuantityInBag(gRogueMPTestArg[1]);
+        gRogueMPTestOut[4] = gMain.callback2 == CB2_Overworld;
+        break;
+    case 11:
+        ScriptContext_SetupScript((const u8*)(gRogueMPTestArg[0] | ((u32)gRogueMPTestArg[1] << 16)));
         break;
     }
 }

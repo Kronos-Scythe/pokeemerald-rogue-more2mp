@@ -106,6 +106,14 @@ Friends apply it to their own clean Emerald ROM.
 - Lost partner (4 s silence or link error) → popup, partner hidden, link reopened after 1 s; partner rejoins
   the same session automatically. A client mid-adventure may only rejoin a host on the same adventure
   (seed check). Client gives up after 2 minutes; host keeps waiting.
+- gpSP fakes the link master for the netplay client at ~9.7 words/frame. If the client game keeps
+  interrupts off for longer than one word (~1.7 ms, e.g. a BIOS LZ77 decompression on a map change) a
+  serial word is lost and link.c's 9-word blocks stay shifted, which used to end in a checksum error and a
+  reconnect ~2–3 min into every session. `src/link.c` `DoRecv` now spots gpSP's block checksum word (the
+  same non-zero value in all four SIOMULTI registers, impossible on real 2-player hardware where unused
+  slots read 0xFFFF) and realigns on the spot (`gLinkSlaveRealigns`). The broken block is dropped; our
+  sequence numbers notice and resync. `LinkCB_RogueMP` also rides over isolated link checksum errors
+  (a burst still closes the link).
 - Remote players: remote slot 0 uses the existing net player gfx/palette 8 and follow/ride mon. (Remote
   slots 1–2 from the old 4-player work remain in code but are unused with 2 players.)
 - Talking to the other player targets them (`interactionTargetId`); trading requires both to have a
@@ -124,7 +132,15 @@ python3 tools/netplay_harness/mp_interact.py ... --trade      # walk up to the o
 python3 tools/netplay_harness/mp_interact.py ... --battle     # wild battle while connected
 python3 tools/netplay_harness/mp_npc.py ...                   # real PokeConnect receptionist flow
 python3 tools/netplay_harness/berry_test.py ... --state out/overworld.state --berry 531   # berry planting
+python3 tools/netplay_harness/pokeblock_test.py ... --state out/overworld.state --pokeblock 856  # scatter in an Adventure
+python3 tools/netplay_harness/retroarch_test.py --core gpsp_libretro.so --rom pokeemerald.gba --map pokeemerald.map \
+    --srm hub.srm --work ra --soak 600   # two real headless RetroArch processes over netplay on localhost
 ```
+
+`retroarch_test.py` needs RetroArch installed and a 128K flash save standing in the hub (savestates can't
+be loaded while netplay runs, so both boot the save through the title screen). It checks connect, mirrors,
+movement, a long soak with no reconnect, and a client RetroArch kill/restart rejoin. Last result (stock
+gpSP, 10 min soak): ALL PASSED, 0 reconnects, 1 lost word realigned and resynced.
 
 The first run plays the new-game intro and saves `out/overworld.state` (savestates are per ROM build;
 use `--reboot` after rebuilding). `mp_test.py` checks connect, byte-identical mirrors on both games,
@@ -137,5 +153,10 @@ while connected. All pass at 1, 4 and 15 frames latency.
   object events, and empty soil is an invisible berry tree object. Verified in the harness (no prompt
   without the fix, "Want to plant a Berry?" with it).
 - Pokéblock blending (Market novice blender) verified end to end in the harness: 20 Oran Berries →
-  "4 HP Pokéblocks were made!" (`berry_test.py --blend`). Scattering Pokéblocks on routes / at the Honey
-  Tree needs an active adventure and hasn't been exercised by the harness.
+  "4 HP Pokéblocks were made!" (`berry_test.py --blend`).
+- Pokéblock scattering verified in an Adventure (`pokeblock_test.py`): starts a run through the real
+  Adventure Entrance script, enters a route room, Bag → Poké Block pocket → Use → "The Pokémon seem to
+  enjoy it!", `VAR_ROGUE_ACTIVE_POKEBLOCK` set, one Pokéblock used. Note the hub bag is put away during
+  an Adventure. The Honey Tree path isn't covered.
+- Test hooks (ROGUE_MP_TEST only, `src/rogue_multiplayer.c`): 9 enter adventure room of a type, 10 report
+  var/run/room/bag count/in-overworld, 11 run a script by address.

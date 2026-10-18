@@ -31,6 +31,12 @@ def walk_to(t, s, who, target):
     return False
 
 
+def in_field(t, p):
+    t.poke_cmd(p, 10)  # test hook reports whether the game is in the overworld (gMain is in IWRAM)
+    p.run_frame()
+    return p.peek_u("gRogueMPTestOut", 2, 8) == 1
+
+
 def give(t, s, who, species):
     s.p[who].poke("gRogueMPTestArg", species.to_bytes(2, "little"))
     t.poke_cmd(s.p[who], 4)
@@ -112,15 +118,28 @@ def main():
 
     if args.trade:
         s.press(1, "A", 4, 90)   # YES, trade
-        k = 0
-        for i in range(70):
+        # Advance both games until the Pokemon have changed hands (that happens during the trade scene)
+        for i in range(120):
+            if party(t, s, 0)[0] == 133 and party(t, s, 1)[0] == 25:
+                break
             s.press(i % 2, "A", 4, 40)
             if i % 10 == 0:
-                s.shots(f"i2_trade_{k:02d}")
-                k += 1
-        for _ in range(4):
-            s.press(0, "B", 4, 20)
-            s.press(1, "B", 4, 20)
+                s.shots(f"i2_trade_{i:03d}")
+        # The trade animation is long; press A ("Take good care of ..." only takes A) for whoever is still
+        # in the trade scene until both games are back in the overworld. Pressing A in the field would
+        # talk to the other player again and start another trade.
+        for i in range(120):
+            fields = [in_field(t, p) for p in s.p]
+            if all(fields):
+                break
+            for who in (0, 1):
+                if not fields[who]:
+                    s.p[who].pressed = {"A"}
+            s.step(4)
+            for p in s.p:
+                p.pressed = set()
+            s.step(40)
+        t.check(all(in_field(t, p) for p in s.p), "both games returned to the overworld after the trade")
         s.step(300)
         before_after = (party(t, s, 0), party(t, s, 1))
         print("    parties after:", before_after)

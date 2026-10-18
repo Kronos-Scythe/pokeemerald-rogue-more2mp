@@ -80,6 +80,7 @@ u32 gLinkFiller2;
 u16 gLinkHeldKeys;
 u16 ALIGNED(4) gRecvCmds[MAX_RFU_PLAYERS][CMD_LENGTH];
 u32 gLinkStatus;
+u16 gLinkSlaveRealigns;
 bool8 gLinkDummy1; // Never read
 bool8 gLinkDummy2; // Never read
 bool8 gReadyToExitStandby[MAX_LINK_PLAYERS];
@@ -2236,6 +2237,23 @@ static void DoRecv(void)
     u8 index;
 
     *(u64 *)recv = REG_SIOMLT_RECV;
+
+    // Emulator netplay (gpSP "Pokemon Gen3 mode") fakes the master for slaves at a fixed rate. If the
+    // game keeps interrupts off for longer than one word (e.g. a long BIOS decompression on a map
+    // change) a word is lost and every later block would be read shifted. That emulation puts the block
+    // checksum in all four SIOMULTI registers, which can't happen on a data word (or on real hardware,
+    // where unused slots read 0xFFFF), so use it to fall back in step. The broken block is dropped.
+    if (!gLink.isMaster && gLink.sendCmdIndex != 0
+     && recv[0] == recv[1] && recv[0] == recv[2] && recv[0] == recv[3]
+     && recv[0] != 0 && recv[0] != 0xFFFF)
+    {
+        gLink.sendCmdIndex = 0;
+        gLink.recvCmdIndex = 0;
+        sRecvNonzeroCheck = 0;
+        sChecksumAvailable = FALSE;
+        gLinkSlaveRealigns++;
+    }
+
     if (gLink.sendCmdIndex == 0)
     {
         for (i = 0; i < gLink.playerCount; i++)
