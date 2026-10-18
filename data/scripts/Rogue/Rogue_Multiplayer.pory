@@ -39,6 +39,21 @@ script Rogue_InteractMultiplayerPlayer
         msgbox(format("{RIVAL}: Hi, I'm {RIVAL}!"))
         
         msgbox(format("Would you like to trade Pokémon?"), MSGBOX_YESNO)
+
+        if(var(VAR_RESULT) == YES)
+        {
+            specialvar(VAR_RESULT, CountPartyNonEggMons)
+            if(var(VAR_RESULT) == 0)
+            {
+                msgbox(format("You don't have any Pokémon that can be traded."))
+                setvar(VAR_RESULT, NO)
+            }
+            else
+            {
+                setvar(VAR_RESULT, YES)
+            }
+        }
+
         if(var(VAR_RESULT) == YES)
         {
             message(format("Waiting for other player…\n… … B Button: Cancel"))
@@ -95,11 +110,20 @@ script Rogue_BeginRemoteInteractMultiplayerPlayer
     if(var(VAR_RESULT) == YES)
     {
         // TODO - Support alternative interactions
-        msgbox(format("Let's trade Pokémon!\nWhich Pokémon would you like to Trade?"))
-        special(ChoosePartyMon)
-        waitstate
+        specialvar(VAR_RESULT, CountPartyNonEggMons)
+        if(var(VAR_RESULT) == 0)
+        {
+            msgbox(format("Let's trade Pokémon!\pOh… You don't have any Pokémon that can be traded."))
+            setvar(VAR_LOCAL_MON_SLOT, PARTY_NOTHING_CHOSEN)
+        }
+        else
+        {
+            msgbox(format("Let's trade Pokémon!\nWhich Pokémon would you like to Trade?"))
+            special(ChoosePartyMon)
+            waitstate
 
-        copyvar(VAR_LOCAL_MON_SLOT, VAR_0x8004)
+            copyvar(VAR_LOCAL_MON_SLOT, VAR_0x8004)
+        }
 
         message(format("Waiting for other player…\n… … B Button: Cancel"))
         callnative(RogueMP_WaitTradeSlotResponse)

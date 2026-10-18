@@ -20,6 +20,10 @@
 #include "rogue_multiplayer.h"
 #include "rogue_multiplayer_link.h"
 #include "config/mp_test.h"
+#include "constants/items.h"
+#include "pokemon.h"
+#include "script_pokemon_util.h"
+#include "battle_setup.h"
 #include "rogue_player_customisation.h"
 #include "rogue_ridemon.h"
 #include "rogue_save.h"
@@ -96,8 +100,11 @@ void RogueMP_Init()
 }
 
 #ifdef ROGUE_MP_TEST
-// Written by the test harness: 1 = host, 2 = join, 3 = close
+// Written by the test harness: 1 = host, 2 = join, 3 = close, 4 = give mon (species in gRogueMPTestArg),
+// 5 = copy party species to gRogueMPTestOut, 6 = start a wild battle (species in gRogueMPTestArg)
 EWRAM_DATA volatile u8 gRogueMPTestCommand = 0;
+EWRAM_DATA volatile u16 gRogueMPTestArg = 0;
+EWRAM_DATA volatile u16 gRogueMPTestOut[PARTY_SIZE] = {0};
 
 void RogueMP_TestHook(void)
 {
@@ -117,6 +124,21 @@ void RogueMP_TestHook(void)
     case 3:
         if(gRogueMultiplayer != NULL)
             RogueMP_Close();
+        break;
+    case 4:
+        ScriptGiveMon(gRogueMPTestArg, 10, ITEM_NONE, 0, 0, 0);
+        break;
+    case 5:
+        {
+            u8 i;
+            for(i = 0; i < PARTY_SIZE; ++i)
+                gRogueMPTestOut[i] = GetMonData(&gPlayerParty[i], MON_DATA_SPECIES);
+        }
+        break;
+    case 6:
+        // Wild battle against species in gRogueMPTestArg
+        CreateScriptedWildMon(gRogueMPTestArg, 5, ITEM_NONE, FALSE);
+        BattleSetup_StartScriptedWildBattle();
         break;
     }
 }

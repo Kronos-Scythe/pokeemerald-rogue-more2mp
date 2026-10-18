@@ -237,6 +237,27 @@ class MPTest:
         self.report(s, "05b_speed")
         self.compare_mirrors(s, "after speed mismatch")
 
+        print("== Saving the game while connected")
+        for who in (0, 1):
+            before = self.link_stats(s.p[who])["reconnects"]
+            s.press(who, "START", 4, 20)
+            s.press(who, "DOWN", 4, 10)
+            s.press(who, "DOWN", 4, 10)
+            s.press(who, "A", 4, 40)      # Save
+            s.press(who, "A", 4, 60)      # Yes
+            s.press(who, "A", 4, 60)      # Overwrite (if asked)
+            s.step(300)
+            s.press(who, "B", 4, 30)
+            s.press(who, "B", 4, 30)
+            s.step(120)
+            s.shots(f"05c_saved_p{who}")
+            reconnects = self.link_stats(s.p[who])["reconnects"] - before
+            print(f"    p{who} reconnects during save: {reconnects}")
+        frames = self.wait_connected(s, 3600)
+        self.check(frames is not None, "still connected after both players saved")
+        s.step(300)
+        self.compare_mirrors(s, "after saving")
+
         print("== Long soak")
         for i in range(10):
             s.hold(i % 2, ["RIGHT", "LEFT", "UP", "DOWN"][i % 4], 32)

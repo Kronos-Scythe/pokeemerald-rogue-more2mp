@@ -169,6 +169,8 @@ class Link:
 
 
 class Core:
+    _instances = 0
+
     def __init__(self, core_path, rom_path, client_id, link, workdir, options=None, sram=None, sym=None):
         self.client_id = client_id
         self.link = link
@@ -179,7 +181,9 @@ class Core:
         self._optbufs = {}
         self.sym = sym or {}
         # Each instance needs its own copy of the shared object so globals are separate.
-        so_copy = os.path.join(workdir, f"core{client_id}.so")
+        # (never overwrite a copy that is already loaded, so every instance gets a fresh file name)
+        Core._instances += 1
+        so_copy = os.path.join(workdir, f"core{client_id}_{os.getpid()}_{Core._instances}.so")
         shutil.copy(core_path, so_copy)
         self.lib = C.CDLL(so_copy, mode=os.RTLD_LOCAL)
         self.np = None
